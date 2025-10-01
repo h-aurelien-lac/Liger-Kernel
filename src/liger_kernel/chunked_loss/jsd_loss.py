@@ -56,6 +56,7 @@ class LigerFusedLinearJSDFunction(LigerFusedLinearDistillationBase):
         temperature: float = 1.0,
         compiled: bool = True,
         chunk_size: int = 1024,
+        return_aux_loss: bool = False,
     ):
         """
         Fused linear layer with JSD distillation loss.
@@ -72,8 +73,9 @@ class LigerFusedLinearJSDFunction(LigerFusedLinearDistillationBase):
             temperature (float): Temperature for softening/sharpening distributions
             compiled (bool): Whether to use torch compile
             chunk_size (int): Size of chunks for processing.
+            return_aux_loss (bool): Whether to return auxiliary losses (soft_loss, hard_loss) in addition to total loss.
         Returns:
-            torch.Tensor: Computed loss
+            torch.Tensor: Computed loss, or tuple of (loss, soft_loss, hard_loss) if return_aux_loss is True
         """
         return super().forward(
             cls=cls,
@@ -92,11 +94,12 @@ class LigerFusedLinearJSDFunction(LigerFusedLinearDistillationBase):
             ignore_index=ignore_index,
             temperature=temperature,
             compiled=compiled,
+            return_aux_loss=return_aux_loss,
         )
 
     @staticmethod
-    def backward(ctx, grad_output):
-        grads = LigerFusedLinearDistillationBase.backward(ctx, grad_output)[:6]
+    def backward(ctx, grad_output, grad_soft_loss=None, grad_hard_loss=None):
+        grads = LigerFusedLinearDistillationBase.backward(ctx, grad_output, grad_soft_loss, grad_hard_loss)[:6]
 
         return (
             *grads,
@@ -108,6 +111,7 @@ class LigerFusedLinearJSDFunction(LigerFusedLinearDistillationBase):
             None,  # temperature
             None,  # compiled
             None,  # chunk_size
+            None,  # return_aux_loss
         )
 
 
@@ -125,6 +129,7 @@ class LigerFusedLinearJSDLoss(torch.nn.Module):
         temperature: float = 1.0,
         compiled: bool = True,
         chunk_size: int = 1024,
+        return_aux_loss: bool = False,
     ):
         """
         Args:
@@ -135,6 +140,7 @@ class LigerFusedLinearJSDLoss(torch.nn.Module):
             compiled (bool): Whether to use torch compile
             beta (float): Coefficient beta of generalized JSD in the interval [0, 1]. Default: `0.5`.
             chunk_size (int): Size of chunks for processing.
+            return_aux_loss (bool): Whether to return auxiliary losses (soft_loss, hard_loss) in addition to total loss.
         """
         super().__init__()
         assert temperature != 0, "Temperature cannot be 0."
@@ -145,6 +151,7 @@ class LigerFusedLinearJSDLoss(torch.nn.Module):
         self.compiled = compiled
         self.beta = beta
         self.chunk_size = chunk_size
+        self.return_aux_loss = return_aux_loss
 
     def forward(
         self,
@@ -155,7 +162,7 @@ class LigerFusedLinearJSDLoss(torch.nn.Module):
         true_labels: torch.LongTensor,
         student_bias: torch.Tensor = None,
         teacher_bias: torch.Tensor = None,
-    ) -> torch.Tensor:
+    ):
         """
         Compute the JSD distillation loss.
 
@@ -167,7 +174,7 @@ class LigerFusedLinearJSDLoss(torch.nn.Module):
             true_labels (torch.LongTensor): Target labels tensor
 
         Returns:
-            torch.Tensor: Computed loss
+            torch.Tensor or tuple: Computed loss, or tuple of (loss, soft_loss, hard_loss) if return_aux_loss is True
         """
         return LigerFusedLinearJSDFunction.apply(
             student_input,
@@ -184,4 +191,5 @@ class LigerFusedLinearJSDLoss(torch.nn.Module):
             self.temperature,
             self.compiled,
             self.chunk_size,
+            self.return_aux_loss,
         )
